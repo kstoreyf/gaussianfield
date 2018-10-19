@@ -14,8 +14,10 @@ def main():
     L = 40 #length scale
     n = 256 #pixels on side of density field
     d = 3 #dimensions
+    N = int(1e3) #num samples
 
     generate_field(L, n, d)
+    sample_field(L, n, N, d)
     plt.show()
 
 
@@ -27,20 +29,20 @@ def generate_field(L, n, d):
 
     dens = density_field(a, d)
     plot_pixel_hist(dens, fit=True)
-    plot_density(dens, d, saveto='density'+tag+'.png')
+    plot_density(dens, d, avg=False, saveto='density'+tag+'.png')
+    plot_density(dens, d, avg=True, saveto='density_avg'+tag+'.png')
+    plot_tiled(dens, d, avg=True, saveto='density_tiled'+tag+'.png')
     save_field(dens, 'density'+tag+'.p')
 
 
 def sample_field(L, n, N, d):
     tag = '_n{}_L{}_{}d'.format(n, L, d)
     dens = load_field('density'+tag+'.p')
-    N = int(1e4) #num samples
-    q = exponentiate(dens, N, fac=5e4)
+    q = exponentiate(dens, N, fac=1e9)
     samples = generate_samples(L, N, d)
     sampled_field, rejects = reject_samples(samples, q, L, n, d)
-
     plot_samples(sampled_field, rejects, d)
-    save_field(sampled_field, 'samples'+tag+'.p')
+    save_field(sampled_field, 'samples'+tag+'_N{}.p'.format(N))
 
 
 def get_ks(L, n, d):
@@ -178,18 +180,49 @@ def load_field(fn):
     return np.load(pickle_dir+fn)
 
 
-def plot_density(dens, d, saveto=None):
+def plot_density(dens, d, avg=True, saveto=None):
     plt.figure()
     if d==1:
         plt.plot(dens)
     if d>1:
         if d==3:
-            dens_pix = dens[0]
+            if avg:
+                dens_pix = np.mean(dens[0:12], axis=0)
+            else:
+                dens_pix = dens[0]
+
         if d==2:
             dens_pix = dens
         ax = plt.gca()
         cax = ax.imshow(dens_pix)
+        maxd = np.max(abs(dens_pix))
+        cax.set_clim(-maxd, maxd)
         plt.colorbar(cax)
+        plt.xlabel('x')
+        plt.ylabel('y')
+    if saveto:
+        plt.savefig(plot_dir+saveto)
+
+
+def plot_tiled(dens, d, avg=True, saveto=None):
+    plt.figure()
+    if d==1:
+        plt.plot(np.tile(dens, 2))
+    if d>1:
+        if d==3:
+            if avg:
+                dens_pix = np.mean(dens[0:12], axis=0)
+            else:
+                dens_pix = dens[0]
+        if d==2:
+            dens_pix = dens
+        ax = plt.gca()
+        cax = ax.imshow(np.tile(dens_pix, (2,2)))
+        maxd = np.max(abs(dens_pix))
+        cax.set_clim(-maxd, maxd)
+        plt.colorbar(cax)
+        plt.xlabel('x')
+        plt.ylabel('y')
     if saveto:
         plt.savefig(plot_dir+saveto)
 
@@ -294,7 +327,7 @@ def plot_pixel_hist(dens, fit=False):
             A, mu, sigma = p
             return np.array(A * np.exp(-(x - mu) ** 2 / (2. * sigma ** 2)))
 
-        p0 = [len(dpix)/10., 0., 1e-10]
+        p0 = [len(dpix)/10., 0., 0.5e-10]
 
         coeff, var_matrix = curve_fit(gauss, bin_centres, hist, p0=p0)
         hist_fit = gauss(bin_centres, *coeff)
