@@ -6,66 +6,70 @@ import gaussian_random as gr
 
 
 
+pickle_dir = 'pickles_2018-10-28/'
+plot_dir = 'plots_2018-10-28/'
+
+
 def main():
     L = 40
-    n = 64
+    n = 256
     d = 3
+    #tag = '_n{}_L{}_{}d'.format(n, L, d)
+    tag = '_n{}_L{}_{}d_bump'.format(n, L, d)
 
     # Calculate true power spectrum
     ktrue = np.logspace(np.log10(1e-3), np.log10(1e2), 50)
-    pktrue = gr.powspec(ktrue)
+    #pktrue = gr.powspec(ktrue)
+    pktrue = gr.powspec_bump(ktrue)
 
     # Calculate true correlation function
-    rtrue, cftrue = pk_to_2pcf(ktrue, pktrue, d)
+    rtrue, cftrue = pk_to_2pcf(ktrue, pktrue, L, n, d)
 
     # Calculate output power spectrum from density field
-
-    dens = gr.load_field('density_n{}_L{}_{}d.p'.format(n, L, d))
-    dens /= 1./(2*np.pi)**d
-    # fft to properly count pixels
+    dens = gr.load_field('density'+tag+'.p'.format(n, L, d))
+    # fft (not rfft) to properly count pixels
     pk = np.abs(fftengn.fftshift(fftengn.fftn(dens)))**2
 
     #scale
-    boxvol = np.float(L)**3
-    pixelsize = boxvol/np.float(n)**3
-    unscale = boxvol/pixelsize**2
-    pk *= unscale
+    boxvol = np.float(L)**d
+    pix = (float(L)/float(n))**d
+    pk *= pix**2 / boxvol
 
     # get all frequency values
     k = gr.get_ks(L, n, d, full=True)
 
     kavg, pkavg = radial_average(k, pk)
-    plot_pk(*zip([ktrue, pktrue], [kavg, pkavg]))
+    ks = [ktrue, kavg]
+    Pks = [pktrue, pkavg]
+    labels = ['True', 'FT']
+    plot_pk(ks, Pks, labels, saveto='powspec'+tag+'.png')
 
 
     # Calculate correlation function from output power spectrum
-    r, cf = pk_to_2pcf(kavg, pkavg, d)
-    plot_cf(*zip([rtrue, cftrue], [r, cf]))
+    r, cf = pk_to_2pcf(kavg, pkavg, L, n, d)
+    rs = [rtrue, r]
+    cfs = [cftrue, cf]
+    labels = ['True', 'FT']
+    plot_cf(rs, cfs, labels, saveto='cf'+tag+'.png')
 
     plt.show()
 
 
-def plot_cf(r, cf):
-    plt.figure()
-    rsize = np.array(r).shape[0]
-    if rsize==1:
-        r = [r]
-        cf = [cf]
-    for i in range(rsize):
-        rcf = np.array([rrcf for rrcf in zip(r[i], cf[i]) if rrcf[1]>0])
-        rr = rcf[:,0]
-        cfcf = rcf[:,1]
-        plt.loglog(rr, cfcf)
-    plt.xlabel('r')
-    plt.ylabel(r'$\xi$(r)')
 
-
-def pk_to_2pcf(k, pk, d):
+def pk_to_2pcf(k, pk, L, n, d):
     print 'Pk tp 2PCF'
     ksps = np.array([kkpp for kkpp in zip(k, pk) if np.isfinite(kkpp[1])])
     ks = ksps[:,0]
     ps = ksps[:,1]
-    cf = 1./(2*np.pi)**d * fftengn.fftshift(fftengn.irfft(ps))
+
+    cf = fftengn.fftshift(fftengn.irfft(ps))
+
+    #scale
+    boxvol = np.float(L)**d
+    pix = (float(L)/float(n))**d
+    cf *= 1./pix * 1./boxvol
+    cf *= 1./(2*np.pi)**d
+
     r = 2.*np.pi/ks
     return r, cf
 
@@ -99,7 +103,6 @@ def zero_odds(x, y):
     kx = fftengn.fftshift(fftengn.fftfreq(n, 1./n))
     ky = fftengn.fftshift(fftengn.fftfreq(n, 1./n))
     kz = fftengn.fftshift(fftengn.fftfreq(n, 1./n))[:n/2+1]
-    #mask = np.zeros((n,n,n))
     for i in range(len(kx)):
         for j in range(len(ky)):
             for k in range(len(kz)):
@@ -109,16 +112,39 @@ def zero_odds(x, y):
     return x, y
 
 
-def plot_pk(k, Pk):
+def plot_pk(k, Pk, label, saveto=None):
     plt.figure()
-    ksize = np.array(k).shape[0]
+    ksize = len(k)
     if ksize==1:
         k = [k]
         Pk = [Pk]
+        label = [label]
     for i in range(ksize):
-        plt.loglog(k[i], Pk[i])
+        plt.loglog(k[i], Pk[i], label=label[i])
     plt.xlabel('k')
     plt.ylabel('P(k)')
+    plt.legend()
+    if saveto:
+        plt.savefig(plot_dir+saveto)
+
+
+def plot_cf(r, cf, label, saveto=None):
+    plt.figure()
+    rsize = len(r)
+    if rsize==1:
+        r = [r]
+        cf = [cf]
+        label = [label]
+    for i in range(rsize):
+        rcf = np.array([rrcf for rrcf in zip(r[i], cf[i]) if rrcf[1]>0])
+        rr = rcf[:,0]
+        cfcf = rcf[:,1]
+        plt.loglog(rr, cfcf, label=label[i])
+    plt.xlabel('r')
+    plt.ylabel(r'$\xi$(r)')
+    plt.legend()
+    if saveto:
+        plt.savefig(plot_dir+saveto)
 
 
 if __name__=='__main__':

@@ -12,7 +12,7 @@ plot_dir = 'plots_2018-10-28/'
 def main():
 
     L = 40 #length scale
-    n = 64 #pixels on side of density field
+    n = 128 #pixels on side of density field
     d = 3 #dimensions
     N = int(1e3) #num samples
 
@@ -20,14 +20,24 @@ def main():
     #sample_field(L, n, N, d)
     plt.show()
 
-
 def generate_field(L, n, d):
-    tag = '_n{}_L{}_{}d'.format(n, L, d)
-    k = get_ks(L, n, d)
-    Pk = powspec(k)
-    a = get_amplitudes(L, n, Pk, d)
+    #tag = '_n{}_L{}_{}d'.format(n, L, d)
+    tag = '_n{}_L{}_{}d_bump'.format(n, L, d)
 
-    dens = density_field(a, d)
+    k = get_ks(L, n, d)
+    #Pk = powspec(k)
+    Pk = powspec_bump(k)
+    print np.mean(Pk), np.min(Pk), np.max(Pk)
+
+    a = get_amplitudes(L, n, Pk, d)
+    a2 = a*np.conj(a)
+    print np.mean(a2), np.min(a2), np.max(a2)
+    a3 = np.abs(a)**2
+    print np.mean(a3), np.min(a3), np.max(a3)
+
+    dens = density_field(a, L, n, d)
+    print np.mean(dens), np.min(dens), np.max(dens)
+
     plot_pixel_hist(dens, fit=True)
     plot_density(dens, L, n, d, avg=False, saveto='density'+tag+'.png')
     plot_density(dens, L, n, d, avg=True, saveto='density_avg'+tag+'.png')
@@ -68,11 +78,16 @@ def get_amplitudes(L, n, Pk, d):
     else:
         return get_amplitudes3d(L, n, Pk)
 
-def density_field(a, d):
+def density_field(a, L, n, d):
     print 'Transforming amplitudes to density field'
-    print a
-    dens = 1./(2*np.pi)**d * fftengn.ifftn(a)
-    assert abs(np.max(np.imag(dens)))<1e-15, 'Density field should be entirely real'
+
+    boxvol = float(L)**d
+    pix = (float(L)/float(n))**d
+
+    dens = fftengn.ifftn(a) * boxvol**(3/2) / pix
+    dens *= 1./(2*np.pi)**d
+    print 'dens:',np.mean(dens), np.min(dens), np.max(dens)
+    assert np.max(abs(np.imag(dens)))<1e-10, 'Density field should be entirely real'
     return np.real(dens)
 
 
@@ -89,29 +104,7 @@ def get_ks3d(L, n, full):
     return k
 
 
-def get_amplitudes3d_oldscaling(L, n, Pk):
-    deltan = (float(L)/float(n))**-3
-    areal = np.zeros((n,n,n))
-    aim = np.zeros((n,n,n))
-    for i in range(n):
-        for j in range(n):
-            for g in range(n/2+1):
-                pk = Pk[i][j][g]
-                if (i==0 or i==n/2) and (j==0 or j==n/2) and (g==0 or g==n/2):
-                    areal[i][j][g] = np.random.normal(0, deltan) * np.sqrt(pk) * 1./L**3
-                    aim[i][j][g] = 0
-                else:
-                    areal[i][j][g] = 2**(-0.5) * np.random.normal(0, deltan) * np.sqrt(pk) * 1./L**3
-                    aim[i][j][g] = 2**(-0.5) * np.random.normal(0, deltan) * np.sqrt(pk) * 1./L**3
-                    areal[(n-i)%n][(n-j)%n][(n-g)%n] = areal[i][j][g]
-                    aim[(n-i)%n][(n-j)%n][(n-g)%n] = -aim[i][j][g]
-    a = areal + 1.0j*aim
-    a = fftengn.ifftshift(a)
-    return a
-
-
 def get_amplitudes3d(L, n, Pk):
-    #deltan = (float(L)/float(n))**-3
     areal = np.zeros((n,n,n))
     aim = np.zeros((n,n,n))
     for i in range(n):
@@ -119,7 +112,7 @@ def get_amplitudes3d(L, n, Pk):
             for g in range(n/2+1):
                 pk = Pk[i][j][g]
                 if (i==0 or i==n/2) and (j==0 or j==n/2) and (g==0 or g==n/2):
-                    areal[i][j][g] = 2**(-0.5) * np.random.normal(0, np.sqrt(pk))
+                    areal[i][j][g] = np.random.normal(0, np.sqrt(pk))
                     aim[i][j][g] = 0
                 else:
                     areal[i][j][g] = 2**(-0.5) * np.random.normal(0, np.sqrt(pk))
@@ -127,13 +120,9 @@ def get_amplitudes3d(L, n, Pk):
                     areal[(n-i)%n][(n-j)%n][(n-g)%n] = areal[i][j][g]
                     aim[(n-i)%n][(n-j)%n][(n-g)%n] = -aim[i][j][g]
     a = areal + 1.0j*aim
-    #scale
-    boxvol = float(L) ** 3
-    pixelsize = boxvol / float(n) ** 3
-    scale = pixelsize ** 2 / boxvol
-    a *= np.sqrt(scale)
     a = fftengn.ifftshift(a)
-    return a
+    return a #(h/Mpc)**3
+
 
 
 def get_ks2d(L, n, full=False):
@@ -147,26 +136,6 @@ def get_ks2d(L, n, full=False):
     return k
 
 
-def get_amplitudes2d_oldscaling(L, n, Pk):
-    deltan = (float(L)/float(n))**-2
-    areal = np.zeros((n,n))
-    aim = np.zeros((n,n))
-    for i in range(n):
-        for j in range(n/2+1):
-            pk = Pk[i][j]
-            if (i==0 or i==n/2) and (j==0 or j==n/2):
-                areal[i][j] = np.random.normal(0, deltan) * np.sqrt(pk) * 1./L**2
-                aim[i][j] = 0
-            else:
-                areal[i][j] = 2**(-0.5) * np.random.normal(0, deltan) * np.sqrt(pk) * 1./L**2
-                aim[i][j] = 2**(-0.5) * np.random.normal(0, deltan) * np.sqrt(pk) * 1./L**2
-                areal[(n-i)%n][(n-j)%n] = areal[i][j]
-                aim[(n-i)%n][(n-j)%n] = -aim[i][j]
-    a = areal + 1.0j*aim
-    a = fftengn.ifftshift(a)
-    return a
-
-
 def get_amplitudes2d(L, n, Pk):
     areal = np.zeros((n,n))
     aim = np.zeros((n,n))
@@ -177,18 +146,13 @@ def get_amplitudes2d(L, n, Pk):
                 areal[i][j] = np.random.normal(0, np.sqrt(pk))
                 aim[i][j] = 0
             else:
-                areal[i][j] = np.random.normal(0, np.sqrt(pk))
-                aim[i][j] = np.random.normal(0, np.sqrt(pk))
+                areal[i][j] = 2**(-0.5) * np.random.normal(0, np.sqrt(pk))
+                aim[i][j] =  2**(-0.5) * np.random.normal(0, np.sqrt(pk))
                 areal[(n-i)%n][(n-j)%n] = areal[i][j]
                 aim[(n-i)%n][(n-j)%n] = -aim[i][j]
     a = areal + 1.0j*aim
-    #scale
-    boxvol = float(L) ** 2
-    pixelsize = boxvol / float(n) ** 2
-    scale = pixelsize ** 2 / boxvol
-    a *= np.sqrt(scale)
     a = fftengn.ifftshift(a)
-    return a
+    return a # (h/Mpc)**2
 
 
 def get_ks1d(L, n, full=False):
@@ -214,32 +178,9 @@ def get_amplitudes1d(L, n, Pk):
             areal[(n-i)%n] = areal[i]
             aim[(n-i)%n] = -aim[i]
     a = areal + 1.0j*aim
-    #scale
-    boxvol = float(L)
-    pixelsize = boxvol / float(n)
-    scale = pixelsize ** 2 / boxvol
-    a *= np.sqrt(scale)
     a = fftengn.ifftshift(a)
-    return a
+    return a #(h/Mpc)
 
-
-def get_amplitudes1d_oldscaling(L, n, Pk):
-    deltan = (float(L)/float(n))**-1
-    areal = np.zeros(n)
-    aim = np.zeros(n)
-    for i in range(n/2+1):
-        pk = Pk[i]
-        if (i==0 or i==n/2):
-            areal[i] = np.random.normal(0, deltan) * np.sqrt(pk) * 1./L
-            aim[i] = 0
-        else:
-            areal[i] = 2**(-0.5) * np.random.normal(0, deltan) * np.sqrt(pk) * 1./L
-            aim[i] = 2**(-0.5) * np.random.normal(0, deltan) * np.sqrt(pk) * 1./L
-            areal[(n-i)%n] = areal[i]
-            aim[(n-i)%n] = -aim[i]
-    a = areal + 1.0j*aim
-    a = fftengn.ifftshift(a)
-    return a
 
 def exponentiate(dens, N, fac):
     print 'Exponentiating density field'
@@ -384,9 +325,35 @@ def powspec(k):
     return Pk
 
 
+def powspec_bump(k):
+    #print 'Computing power spectrum'
+    if type(k)==float or type(k)==int and k==0:
+        return 0.0
+    a = 50
+    b = 50
+    c = -1
+    d = 3
+    N = 5 * 10 ** 4
+    Pk = N * 1.0 / ((a * k) ** c + (b * k) ** d)
+
+    Pk += gaussian(k, *[0.1, 6, 1.5])
+
+    if type(Pk)==float:
+        assert Pk>=0
+    else:
+        assert Pk[Pk >= 0.0].size == Pk.size
+    return Pk
+
+
+
 def plot_powspec(k, Pk):
     plt.figure()
     plt.loglog(k, Pk)
+
+
+def gaussian(x, *p):
+    A, mu, sigma = p
+    return np.array(A * np.exp(-(x - mu) ** 2 / (2. * sigma ** 2)))
 
 
 def plot_pixel_hist(dens, fit=False):
@@ -401,15 +368,10 @@ def plot_pixel_hist(dens, fit=False):
     plt.ylabel('freq')
 
     if fit:
-
-        def gauss(x, *p):
-            A, mu, sigma = p
-            return np.array(A * np.exp(-(x - mu) ** 2 / (2. * sigma ** 2)))
-
         p0 = [len(dpix)/10., 0., 0.5e-10]
 
-        coeff, var_matrix = curve_fit(gauss, bin_centres, hist, p0=p0)
-        hist_fit = gauss(bin_centres, *coeff)
+        coeff, var_matrix = curve_fit(gaussian, bin_centres, hist, p0=p0)
+        hist_fit = gaussian(bin_centres, *coeff)
 
         plt.plot(bin_centres, hist_fit, label='Fit: mean={:.3e}, stdev={:.3e}, var={:.3e}, '.format(
             coeff[1], coeff[2], coeff[2]**2))
