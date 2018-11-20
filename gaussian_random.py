@@ -5,15 +5,17 @@ from numpy import fft as fftengn
 from scipy.optimize import curve_fit
 
 
-pickle_dir = 'pickles_2018-10-28/'
-plot_dir = 'plots_2018-10-28/'
+pickle_dir = 'pickles_2018-11-05/'
+plot_dir = 'plots_2018-11-05/'
 
 
 def main():
 
     L = 40 #length scale
-    n = 128 #pixels on side of density field
-    d = 3 #dimensions
+    #n = 4096 #pixels on side of density field
+    #n = 16384
+    n = 256
+    d = 2 #dimensions
     N = int(1e3) #num samples
 
     generate_field(L, n, d)
@@ -21,12 +23,20 @@ def main():
     plt.show()
 
 def generate_field(L, n, d):
-    #tag = '_n{}_L{}_{}d'.format(n, L, d)
-    tag = '_n{}_L{}_{}d_bump'.format(n, L, d)
+    #pstag = '_gaussian'
+    pstag = ''
+    #pstag = '_bump'
+    tag = '_n{}_L{}_{}d{}'.format(n, L, d, pstag)
+    if pstag=='':
+        ps = powspec
+    elif pstag=='_bump':
+        ps = powspec_bump
+    elif pstag=='_gaussian':
+        ps = powspec_gaussian
+
 
     k = get_ks(L, n, d)
-    #Pk = powspec(k)
-    Pk = powspec_bump(k)
+    Pk = ps(k)
     print np.mean(Pk), np.min(Pk), np.max(Pk)
 
     a = get_amplitudes(L, n, Pk, d)
@@ -55,16 +65,16 @@ def sample_field(L, n, N, d):
     save_field(sampled_field, 'samples'+tag+'_N{}.p'.format(N))
 
 
-def get_ks(L, n, d, full=False):
+def get_ks(L, n, d, full=False, shift=True):
     print 'Computing ks'
     d = int(d)
     assert d in [1,2,3], 'd must be 1, 2, or 3'
     if d==1:
-        return get_ks1d(L, n, full=full)
+        return get_ks1d(L, n, full=full, shift=shift)
     elif d==2:
-        return get_ks2d(L, n, full=full)
+        return get_ks2d(L, n, full=full, shift=shift)
     else:
-        return get_ks3d(L, n, full=full)
+        return get_ks3d(L, n, full=full, shift=shift)
 
 
 def get_amplitudes(L, n, Pk, d):
@@ -84,18 +94,26 @@ def density_field(a, L, n, d):
     boxvol = float(L)**d
     pix = (float(L)/float(n))**d
 
-    dens = fftengn.ifftn(a) * boxvol**(3/2) / pix
-    dens *= 1./(2*np.pi)**d
+    #a *= np.sqrt(boxvol/pix**2)
+    #dens = fftengn.ifftn(a)
+    #dens = fftengn.ifftn(a) * boxvol**(3./2.) / pix
+    dens = fftengn.ifftn(a) * boxvol ** (1./2.) / pix
+    #dens = fftengn.ifftn(a) * boxvol / pix
+    #dens *= 1./np.sqrt(2*np.pi)**d
     print 'dens:',np.mean(dens), np.min(dens), np.max(dens)
     assert np.max(abs(np.imag(dens)))<1e-10, 'Density field should be entirely real'
     return np.real(dens)
 
 
-def get_ks3d(L, n, full):
+def get_ks3d(L, n, full=False, shift=True):
     assert n % 2 == 0
-    kx = fftengn.fftshift(fftengn.fftfreq(n, 1./n))
-    ky = fftengn.fftshift(fftengn.fftfreq(n, 1./n))
-    kz = fftengn.fftshift(fftengn.fftfreq(n, 1./n))
+    kx = fftengn.fftfreq(n, 1./n)
+    ky = fftengn.fftfreq(n, 1./n)
+    kz = fftengn.fftfreq(n, 1./n)
+    if shift:
+        kx = fftengn.fftshift(kx)
+        ky = fftengn.fftshift(ky)
+        kz = fftengn.fftshift(kz)
     if not full:
         kz = kz[:n/2+1]
     k = 2.*np.pi/L * np.sqrt(kx[:,np.newaxis][np.newaxis,:]**2
@@ -125,10 +143,13 @@ def get_amplitudes3d(L, n, Pk):
 
 
 
-def get_ks2d(L, n, full=False):
+def get_ks2d(L, n, full=False, shift=True):
     assert n % 2 == 0
-    kx = fftengn.fftshift(fftengn.fftfreq(n, 1./n))
-    ky = fftengn.fftshift(fftengn.fftfreq(n, 1./n))
+    kx = fftengn.fftfreq(n, 1./n)
+    ky = fftengn.fftfreq(n, 1./n)
+    if shift:
+        kx = fftengn.fftshift(kx)
+        ky = fftengn.fftshift(ky)
     if not full:
         ky = ky[:n/2+1]
     k = 2.*np.pi/L * np.sqrt(kx[:,np.newaxis]**2
@@ -155,12 +176,14 @@ def get_amplitudes2d(L, n, Pk):
     return a # (h/Mpc)**2
 
 
-def get_ks1d(L, n, full=False):
+def get_ks1d(L, n, full=False, shift=True):
     assert n % 2 == 0
-    kx = fftengn.fftshift(fftengn.fftfreq(n, 1./n))
+    kx = fftengn.fftfreq(n, 1./n)
+    if shift:
+        kx = fftengn.fftshift(kx)
     if not full:
         kx = kx[:n/2+1]
-    k = 2.*np.pi/L * abs(kx)
+    k = 2.*np.pi/float(L) * abs(kx)
     return k
 
 
@@ -170,7 +193,7 @@ def get_amplitudes1d(L, n, Pk):
     for i in range(n/2+1):
         pk = Pk[i]
         if (i==0 or i==n/2):
-            areal[i] = 2**(-0.5) * np.random.normal(0, np.sqrt(pk))
+            areal[i] = np.random.normal(0, np.sqrt(pk))
             aim[i] = 0
         else:
             areal[i] = 2**(-0.5) * np.random.normal(0, np.sqrt(pk))
@@ -304,10 +327,6 @@ def generate_samples(L, N, d):
     return samples
 
 
-def gaussian(x, mean, std):
-    return 1/np.sqrt(2*np.pi*std**2) * np.exp(-1*(x-mean)**2/(2*std**2))
-
-
 def powspec(k):
     #print 'Computing power spectrum'
     if type(k)==float or type(k)==int and k==0:
@@ -344,6 +363,17 @@ def powspec_bump(k):
         assert Pk[Pk >= 0.0].size == Pk.size
     return Pk
 
+def powspec_gaussian(k):
+    #print 'Computing power spectrum'
+    if type(k)==float or type(k)==int and k==0:
+        return 0.0
+    Pk = gaussian(k, *[100, 0, 15])
+
+    if type(Pk)==float:
+        assert Pk>=0
+    else:
+        assert Pk[Pk >= 0.0].size == Pk.size
+    return Pk
 
 
 def plot_powspec(k, Pk):
